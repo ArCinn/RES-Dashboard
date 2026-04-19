@@ -6,13 +6,17 @@
     <title>RES-Dashboard</title>
 </head>
 <body>
-    <h1>Temp Website, go away ^_^ (3)</h1>
-    <div style="width: 800px;"><canvas id="myChart"></canvas></div>
+    <h1>Dashboard YAY(3)</h1>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <div style="width: 800px;">
+        <canvas id="myChart"></canvas>
+    </div>
+    
     <script type="module">
-        import Chart from 'https://cdn.jsdelivr.net/npm/chart.js/auto/auto.js';
+        //import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics.js";
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics.js";
-        import { getFirestore, doc, getDoc, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCOpg3gV-_gwAhvh2Blwr3awMPln7yG2ys",
@@ -23,14 +27,13 @@
             appId: "1:402511038798:web:4697300d8224dae57b361f",
             measurementId: "G-JH4927MGX0"
         };
-
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const analytics = getAnalytics(app);
+        //const analytics = getAnalytics(app);
 
-        console.log("Firebase is linked to my GitHub site! 🚀");
+        console.log("Firebase Linked!");
 
-        // --- SEEDING FUNCTION ---
+        /*
         async function seedDummyData() {
             const devices = [
                 "DeviceLow1", "DeviceLow2", "DeviceLow3",
@@ -57,46 +60,57 @@
             }
             alert("Database seeded! Check your Firestore Console. 🎉");
         }
-
+        */
         // --- GRAPH FUNCTION ---
         async function buildDeviceChart(deviceId) {
-            // 1. Get the data from Firestore, ordered by time
             const readingsRef = collection(db, "devices", deviceId, "readings");
             const q = query(readingsRef, orderBy("timestamp", "asc"));
             const querySnapshot = await getDocs(q);
 
             const labels = [];
             const tempData = [];
-            const co2Data = [];
+            const humidityData = [];
 
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
-                // Convert the Firebase timestamp to a readable time
-                const time = data.timestamp ? data.timestamp.toDate().toLocaleTimeString() : "";
+                // Convert Firebase timestamp to readable Clock Time
+                const time = data.timestamp ? data.timestamp.toDate().toLocaleTimeString() : "Pending...";
                 
                 labels.push(time);
                 tempData.push(data.temperature);
-                co2Data.push(data.co2);
+                humidityData.push(data.humidity);
             });
 
-            // 2. Create the Chart
-            const ctx = document.getElementById('myChart').getContext('2d');
+            const ctx = document.getElementById('myChart');
+            
+            // This 'Chart' comes from the <script src="..."> tag we added above
             new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labels,
-                    datasets: [{
-                        label: `Temperature (°C) - ${deviceId}`,
-                        data: tempData,
-                        borderColor: 'rgb(255, 99, 132)',
-                        tension: 0.1
-                    },
-                    {
-                        label: `CO2 (ppm) - ${deviceId}`,
-                        data: co2Data,
-                        borderColor: 'rgb(54, 162, 235)',
-                        tension: 0.1
-                    }]
+                    datasets: [
+                        {
+                            label: 'Temperature (°C)',
+                            data: tempData,
+                            borderColor: 'red',
+                            backgroundColor: 'rgba(255, 0, 0, 0.1)',
+                            yAxisID: 'y',
+                        },
+                        {
+                            label: 'Humidity (%)',
+                            data: humidityData,
+                            borderColor: 'blue',
+                            backgroundColor: 'rgba(0, 0, 255, 0.1)',
+                            yAxisID: 'y1',
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { type: 'linear', display: true, position: 'left' },
+                        y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } }
+                    }
                 }
             });
         }
