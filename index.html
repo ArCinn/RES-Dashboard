@@ -7,10 +7,12 @@
 </head>
 <body>
     <h1>Temp Website, go away ^_^ (3)</h1>
-
+    <div style="width: 800px;"><canvas id="myChart"></canvas></div>
     <script type="module">
+        import Chart from 'https://cdn.jsdelivr.net/npm/chart.js/auto/auto.js';
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics.js";
+        import { collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
         
         // Notice I added 'collection', 'addDoc', and 'serverTimestamp' here!
         import { getFirestore, doc, getDoc, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -31,7 +33,7 @@
 
         console.log("Firebase is linked to my GitHub site! 🚀");
 
-        // --- SEEDING FUNCTION START ---
+        // --- SEEDING FUNCTION ---
         async function seedDummyData() {
             const devices = [
                 "DeviceLow1", "DeviceLow2", "DeviceLow3",
@@ -59,14 +61,52 @@
             alert("Database seeded! Check your Firestore Console. 🎉");
         }
 
-        // --- EXECUTION ---
-        
-        // STEP 1: Uncomment the line below, save, and visit your site once.
-        // seedDummyData(); 
+        // --- GRAPH FUNCTION ---
+        async function buildDeviceChart(deviceId) {
+            // 1. Get the data from Firestore, ordered by time
+            const readingsRef = collection(db, "devices", deviceId, "readings");
+            const q = query(readingsRef, orderBy("timestamp", "asc"));
+            const querySnapshot = await getDocs(q);
 
-        // STEP 2: After you see the alert, come back here and comment it out again!
-        
-        // Your old greeting function can stay or go, it won't hurt anything!
+            const labels = [];
+            const tempData = [];
+            const co2Data = [];
+
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                // Convert the Firebase timestamp to a readable time
+                const time = data.timestamp ? data.timestamp.toDate().toLocaleTimeString() : "";
+                
+                labels.push(time);
+                tempData.push(data.temperature);
+                co2Data.push(data.co2);
+            });
+
+            // 2. Create the Chart
+            const ctx = document.getElementById('myChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: `Temperature (°C) - ${deviceId}`,
+                        data: tempData,
+                        borderColor: 'rgb(255, 99, 132)',
+                        tension: 0.1
+                    },
+                    {
+                        label: `CO2 (ppm) - ${deviceId}`,
+                        data: co2Data,
+                        borderColor: 'rgb(54, 162, 235)',
+                        tension: 0.1
+                    }]
+                }
+            });
+        }
+
+        // --- EXECUTION SECTION ---
+        buildDeviceChart("DeviceHi1");
+        // seedDummyData(); 
         // getGreeting(); 
     </script>
 </body>
