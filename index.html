@@ -62,61 +62,67 @@
         }
         */
         // --- GRAPH FUNCTION ---
-        async function buildDeviceChart(deviceId) {
-            const readingsRef = collection(db, "devices", deviceId, "readings");
-            const q = query(readingsRef, orderBy("timestamp", "asc"));
-            const querySnapshot = await getDocs(q);
+        async function buildGlobalChart(measurement) {
+            // 1. Get ALL readings from every device
+            const allReadings = query(collectionGroup(db, 'readings'), orderBy("timestamp", "asc"));
+            const querySnapshot = await getDocs(allReadings);
 
-            const labels = [];
-            const tempData = [];
-            const humidityData = [];
+            // This object will hold our organized data: { "DeviceHi1": [values], "DeviceLow1": [values] }
+            const deviceData = {};
+            const timeLabels = new Set(); // Using a Set to keep unique timestamps
 
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
-                // Convert Firebase timestamp to readable Clock Time
-                const time = data.timestamp ? data.timestamp.toDate().toLocaleTimeString() : "Pending...";
+                // The 'path' looks like: devices/DeviceHi1/readings/ID
+                // We split it to find out which device this belongs to
+                const deviceId = doc.ref.path.split('/')[1]; 
                 
-                labels.push(time);
-                tempData.push(data.temperature);
-                humidityData.push(data.humidity);
+                if (!deviceData[deviceId]) deviceData[deviceId] = [];
+                
+                const time = data.timestamp ? data.timestamp.toDate().toLocaleTimeString() : "";
+                timeLabels.add(time);
+                deviceData[deviceId].push(data[measurement]);
             });
 
+            // 2. Map colors to device names
+            const getColor = (id) => {
+                if (id.includes("Low")) return 'rgba(75, 192, 192, 1)';   // Green
+                if (id.includes("Med")) return 'rgba(255, 206, 86, 1)';  // Yellow
+                if (id.includes("Hi")) return 'rgba(255, 99, 132, 1)';   // Red
+                return 'rgba(54, 162, 235, 1)';                         // Blue for Control
+            };
+
+            // 3. Prepare datasets for Chart.js
+            const datasets = Object.keys(deviceData).map(id => {
+                return {
+                    label: id,
+                    data: deviceData[id],
+                    borderColor: getColor(id),
+                    borderWidth: 2,
+                    tension: 0.3,
+                    fill: false
+                };
+            });
+
+            // 4. Create the Chart
             const ctx = document.getElementById('myChart');
-            
-            // This 'Chart' comes from the <script src="..."> tag we added above
             new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: 'Temperature (°C)',
-                            data: tempData,
-                            borderColor: 'red',
-                            backgroundColor: 'rgba(255, 0, 0, 0.1)',
-                            yAxisID: 'y',
-                        },
-                        {
-                            label: 'Humidity (%)',
-                            data: humidityData,
-                            borderColor: 'blue',
-                            backgroundColor: 'rgba(0, 0, 255, 0.1)',
-                            yAxisID: 'y1',
-                        }
-                    ]
+                    labels: Array.from(timeLabels),
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
-                    scales: {
-                        y: { type: 'linear', display: true, position: 'left' },
-                        y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } }
+                    plugins: {
+                        title: { display: true, text: `Global ${measurement} Comparison` }
                     }
                 }
             });
         }
 
         // --- EXECUTION SECTION ---
-        buildDeviceChart("DeviceHi1");
+        buildGlobalChart("temperature");
         // seedDummyData(); 
         // getGreeting(); 
     </script>
