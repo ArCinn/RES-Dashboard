@@ -16,7 +16,14 @@
     <script type="module">
         //import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics.js";
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import {
+            getFirestore, 
+            collection, 
+            getDocs, 
+            query, 
+            orderBy, 
+            collectionGroup
+        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCOpg3gV-_gwAhvh2Blwr3awMPln7yG2ys",
