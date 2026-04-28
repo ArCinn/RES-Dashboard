@@ -20,6 +20,14 @@
         .grid-card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); min-height: 200px; }
     </style>
 
+    <h1>Building Analytics Dashboard</h1>
+
+    <div id="controls" style="display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin:20px 0;">
+        <button id="seed-btn" style="padding:10px 18px;border:none;border-radius:6px;background:#2f72d7;color:white;cursor:pointer;">Start DeviceControl Seed</button>
+        <button id="delete-btn" style="padding:10px 18px;border:none;border-radius:6px;background:#d73f3f;color:white;cursor:pointer;">Delete All Readings</button>
+        <button id="refresh-btn" style="padding:10px 18px;border:none;border-radius:6px;background:#4caf50;color:white;cursor:pointer;">Refresh Dashboard</button>
+    </div>
+
     <h2>Global Averages vs Control</h2>
     <div id="main-graphs" class="main-container"></div>
 
@@ -28,7 +36,7 @@
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collectionGroup, query, getDocs, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collectionGroup, collection, query, getDocs, orderBy, addDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCOpg3gV-_gwAhvh2Blwr3awMPln7yG2ys",
@@ -44,6 +52,71 @@
         const db = getFirestore(app);
         const units = ['temperature', 'humidity', 'co2'];
         const deviceTypes = ['Low', 'Med', 'Hi'];
+        const controlDeviceId = 'DeviceControl';
+        let simulationInterval = null;
+
+        function getRandomBetween(min, max) {
+            return +(Math.random() * (max - min) + min).toFixed(1);
+        }
+
+        async function seedControlDeviceReading() {
+            const readingsRef = collection(db, 'devices', controlDeviceId, 'readings');
+            const newReading = {
+                timestamp: new Date(),
+                temperature: getRandomBetween(21, 25),
+                humidity: getRandomBetween(40, 55),
+                co2: getRandomBetween(400, 700)
+            };
+
+            try {
+                await addDoc(readingsRef, newReading);
+                console.log('Seeded DeviceControl reading:', newReading);
+                await buildDashboard();
+            } catch (error) {
+                console.error('Failed to seed control reading:', error);
+            }
+        }
+
+        function toggleSimulation() {
+            const button = document.getElementById('seed-btn');
+            if (simulationInterval) {
+                clearInterval(simulationInterval);
+                simulationInterval = null;
+                button.innerText = 'Start DeviceControl Seed';
+                return;
+            }
+
+            seedControlDeviceReading();
+            simulationInterval = setInterval(seedControlDeviceReading, 10000);
+            button.innerText = 'Stop DeviceControl Seed';
+        }
+
+        async function deleteAllReadings() {
+            if (!window.confirm('Delete all readings from Firestore? This cannot be undone.')) {
+                return;
+            }
+
+            const readingsQuery = query(collectionGroup(db, 'readings'));
+            const snapshot = await getDocs(readingsQuery);
+            const docs = snapshot.docs;
+
+            if (docs.length === 0) {
+                alert('No readings found to delete.');
+                return;
+            }
+
+            const batchSize = 500;
+            for (let i = 0; i < docs.length; i += batchSize) {
+                const batch = writeBatch(db);
+                docs.slice(i, i + batchSize).forEach((docSnap) => {
+                    batch.delete(docSnap.ref);
+                });
+                await batch.commit();
+            }
+
+            alert(`Deleted ${docs.length} readings.`);
+            await buildDashboard();
+        }
 
         // --- MATH HELPERS ---
         // Root Mean Square Error
@@ -75,6 +148,11 @@
         // --- MAIN ENGINE ---
         async function buildDashboard() {
             console.log("Fetching data...");
+            const mainContainer = document.getElementById('main-graphs');
+            const secondaryContainer = document.getElementById('secondary-graphs');
+            mainContainer.innerHTML = '';
+            secondaryContainer.innerHTML = '';
+
             const allReadings = query(collectionGroup(db, 'readings'), orderBy("timestamp", "asc"));
             const snapshot = await getDocs(allReadings);
 
@@ -257,6 +335,10 @@
                 });
             });
         }
+
+        document.getElementById('seed-btn').addEventListener('click', toggleSimulation);
+        document.getElementById('delete-btn').addEventListener('click', deleteAllReadings);
+        document.getElementById('refresh-btn').addEventListener('click', buildDashboard);
 
         // Start the engine
         buildDashboard();
