@@ -6,7 +6,7 @@
     <title>RES-Dashboard</title>
 </head>
 <body>
-    <h1>Dashboard YAY(3)</h1>
+    <h1>Research Dashboard</h1>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
@@ -20,19 +20,22 @@
         .grid-card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); min-height: 200px; }
     </style>
 
-    <h1>Building Analytics Dashboard</h1>
+    <h1>Research Dashboard</h1>
 
     <div id="controls" style="display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin:20px 0;">
-        <button id="seed-btn" style="padding:10px 18px;border:none;border-radius:6px;background:#2f72d7;color:white;cursor:pointer;">Start DeviceControl Seed</button>
+        <!-- <button id="seed-btn" style="padding:10px 18px;border:none;border-radius:6px;background:#2f72d7;color:white;cursor:pointer;">Start Device Seed</button> -->
         <button id="delete-btn" style="padding:10px 18px;border:none;border-radius:6px;background:#d73f3f;color:white;cursor:pointer;">Delete All Readings</button>
         <button id="refresh-btn" style="padding:10px 18px;border:none;border-radius:6px;background:#4caf50;color:white;cursor:pointer;">Refresh Dashboard</button>
     </div>
 
-    <h2>Global Averages vs Control</h2>
+    <h2>The 3 Devices vs Control</h2>
     <div id="main-graphs" class="main-container"></div>
 
-    <h2>Device Breakdowns (7-Day Overlay)</h2>
+    <h2>Day Specific datapoints</h2>
     <div id="secondary-graphs"></div>
+
+    <h2>Individual Device Readings</h2>
+    <div id="tertiary-graphs"></div>
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -50,46 +53,118 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const units = ['temperature', 'humidity', 'co2'];
-        const deviceTypes = ['Low', 'Med', 'Hi'];
+        const units = [
+            { key: 'temperature', label: 'Temperature', unit: '°C' },
+            { key: 'humidity', label: 'Humidity', unit: '%' },
+            { key: 'pm', label: 'PM', unit: 'ppm' }
+        ];
+        const deviceOrder = ['DeviceControl', 'DeviceHi', 'DeviceMed', 'DeviceLow'];
+        const deviceColors = {
+            DeviceControl: '#2f72d7',
+            DeviceHi: '#d73f3f',
+            DeviceMed: '#f39c12',
+            DeviceLow: '#27ae60'
+        };
         const controlDeviceId = 'DeviceControl';
+        const secondaryMetricKey = 'temperature';
+        const dateRange = ['2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18', '2026-09-19', '2026-09-20'];
+        const SHOW_INFODOTS = false;
         let simulationInterval = null;
 
         function getRandomBetween(min, max) {
             return +(Math.random() * (max - min) + min).toFixed(1);
         }
 
-        async function seedControlDeviceReading() {
-            const readingsRef = collection(db, 'devices', controlDeviceId, 'readings');
-            const newReading = {
-                timestamp: new Date(),
-                temperature: getRandomBetween(21, 25),
-                humidity: getRandomBetween(40, 55),
-                co2: getRandomBetween(400, 700)
+        function normalizeReading(data) {
+            const timestamp = data.timestamp && typeof data.timestamp.toDate === 'function'
+                ? data.timestamp.toDate()
+                : new Date(data.timestamp);
+
+            return {
+                ...data,
+                timestamp,
+                temperature: Number(data.temperature ?? 0),
+                humidity: Number(data.humidity ?? 0),
+                pm: Number(data.pm ?? data.co2 ?? 0)
             };
+        }
 
-            try {
-                await addDoc(readingsRef, newReading);
-                console.log('Seeded DeviceControl reading:', newReading);
+        function getValueForMetric(reading, metricKey) {
+            if (metricKey === 'pm') return Number(reading.pm ?? reading.co2 ?? 0);
+            return Number(reading[metricKey] ?? 0);
+        }
+
+        function formatDateKey(date) {
+            const d = new Date(date);
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function formatDateLabel(date) {
+            return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+
+        function getTimeBucket(date) {
+            const d = new Date(date);
+            return new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), 0, 0);
+        }
+
+        function formatTimeLabel(date) {
+            return getTimeBucket(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        async function seedControlDeviceReading() {
+            const seededResults = [];
+            const baseTimestamp = getTimeBucket(new Date());
+
+            for (const deviceId of deviceOrder) {
+                const readingsRef = collection(db, 'devices', deviceId, 'readings');
+                const newReading = {
+                    timestamp: new Date(baseTimestamp),
+                    temperature: getRandomBetween(
+                        deviceId === 'DeviceControl' ? 21 : deviceId === 'DeviceHi' ? 26 : deviceId === 'DeviceMed' ? 24 : 22,
+                        deviceId === 'DeviceControl' ? 25 : deviceId === 'DeviceHi' ? 32 : deviceId === 'DeviceMed' ? 29 : 27
+                    ),
+                    humidity: getRandomBetween(
+                        deviceId === 'DeviceControl' ? 40 : deviceId === 'DeviceHi' ? 35 : deviceId === 'DeviceMed' ? 45 : 50,
+                        deviceId === 'DeviceControl' ? 55 : deviceId === 'DeviceHi' ? 48 : deviceId === 'DeviceMed' ? 60 : 65
+                    ),
+                    pm: getRandomBetween(
+                        deviceId === 'DeviceControl' ? 400 : deviceId === 'DeviceHi' ? 680 : deviceId === 'DeviceMed' ? 520 : 350,
+                        deviceId === 'DeviceControl' ? 700 : deviceId === 'DeviceHi' ? 980 : deviceId === 'DeviceMed' ? 760 : 580
+                    )
+                };
+
+                try {
+                    await addDoc(readingsRef, newReading);
+                    seededResults.push(`${deviceId}: ${newReading.temperature}°C / ${newReading.humidity}% / ${newReading.pm} ppm`);
+                    console.log(`Seeded ${deviceId} reading:`, newReading);
+                } catch (error) {
+                    console.error(`Failed to seed ${deviceId} reading:`, error);
+                }
+            }
+
+            if (seededResults.length > 0) {
+                console.log('Seeded devices:', seededResults);
                 await buildDashboard();
-            } catch (error) {
-                console.error('Failed to seed control reading:', error);
             }
         }
 
-        function toggleSimulation() {
-            const button = document.getElementById('seed-btn');
-            if (simulationInterval) {
-                clearInterval(simulationInterval);
-                simulationInterval = null;
-                button.innerText = 'Start DeviceControl Seed';
-                return;
-            }
+        // function toggleSimulation() {
+        //     const button = document.getElementById('seed-btn');
+        //     if (simulationInterval) {
+        //         clearInterval(simulationInterval);
+        //         simulationInterval = null;
+        //         button.innerText = 'Start Device Seed (DONT PRESS DUM DUM)';
+        //         return;
+        //     }
 
-            seedControlDeviceReading();
-            simulationInterval = setInterval(seedControlDeviceReading, 10000);
-            button.innerText = 'Stop DeviceControl Seed';
-        }
+        //     seedControlDeviceReading();
+        //     simulationInterval = setInterval(seedControlDeviceReading, 10000);
+        //     button.innerText = 'Stop Device Seed';
+        // }
 
         async function deleteAllReadings() {
             if (!window.confirm('Delete all readings from Firestore? This cannot be undone.')) {
@@ -118,220 +193,212 @@
             await buildDashboard();
         }
 
-        // --- MATH HELPERS ---
-        // Root Mean Square Error
-        function calculateRMSE(testValues, controlValues) {
-            let sumSq = 0;
-            let count = Math.min(testValues.length, controlValues.length);
-            if (count === 0) return 0;
-            for (let i = 0; i < count; i++) {
-                sumSq += Math.pow(testValues[i] - controlValues[i], 2);
-            }
-            return Math.sqrt(sumSq / count).toFixed(2);
+        function buildDatasetForMetric(data, deviceId, metricKey, labels) {
+            const readings = data[deviceId] || [];
+            const valueMap = new Map();
+            readings.forEach(reading => {
+                valueMap.set(formatDateKey(reading.timestamp) + '-' + formatTimeLabel(reading.timestamp), getValueForMetric(reading, metricKey));
+            });
+
+            return labels.map((label) => valueMap.get(label) ?? null);
         }
 
-        // Standard Deviation of the Mean Difference
-        function calculateSD(testValues, controlValues) {
-            let diffs = [];
-            let count = Math.min(testValues.length, controlValues.length);
-            if (count === 0) return 0;
-            
-            for (let i = 0; i < count; i++) {
-                diffs.push(testValues[i] - controlValues[i]);
-            }
-            
-            let meanDiff = diffs.reduce((a, b) => a + b, 0) / count;
-            let sumSqDiff = diffs.reduce((a, b) => a + Math.pow(b - meanDiff, 2), 0);
-            return Math.sqrt(sumSqDiff / count).toFixed(2);
-        }
-
-        // --- MAIN ENGINE ---
         async function buildDashboard() {
-            console.log("Fetching data...");
+            console.log('Fetching data...');
             const mainContainer = document.getElementById('main-graphs');
             const secondaryContainer = document.getElementById('secondary-graphs');
+            const tertiaryContainer = document.getElementById('tertiary-graphs');
             mainContainer.innerHTML = '';
             secondaryContainer.innerHTML = '';
+            tertiaryContainer.innerHTML = '';
 
-            const allReadings = query(collectionGroup(db, 'readings'), orderBy("timestamp", "asc"));
+            const allReadings = query(collectionGroup(db, 'readings'), orderBy('timestamp', 'asc'));
             const snapshot = await getDocs(allReadings);
 
-            // Organize data: { deviceId: [ { time: "10:00", date: "2026-04-20", values... } ] }
             const rawData = {};
-            
             snapshot.forEach(doc => {
-                const data = doc.data();
+                const data = normalizeReading(doc.data());
                 const deviceId = doc.ref.path.split('/')[1];
                 if (!rawData[deviceId]) rawData[deviceId] = [];
-                
-                if (data.timestamp) {
-                    const dateObj = data.timestamp.toDate();
+
+                if (data.timestamp && !isNaN(data.timestamp)) {
                     rawData[deviceId].push({
-                        fullTime: dateObj.toLocaleString(),
-                        dateOnly: dateObj.toLocaleDateString(),
-                        timeOnly: dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
-                        temp: data.temperature,
-                        hum: data.humidity,
-                        co2: data.co2
+                        timestamp: data.timestamp,
+                        dateOnly: formatDateKey(data.timestamp),
+                        timeOnly: formatTimeLabel(data.timestamp),
+                        temperature: data.temperature,
+                        humidity: data.humidity,
+                        pm: data.pm
                     });
                 }
             });
 
-            console.log("Data organized! Building charts...");
-            buildMainGraphs(rawData);
-            buildSecondaryGraphs(rawData);
+            const normalizedData = {};
+            deviceOrder.forEach(deviceId => {
+                normalizedData[deviceId] = (rawData[deviceId] || []).sort((a, b) => a.timestamp - b.timestamp);
+            });
+
+            buildMainGraphs(normalizedData);
+            buildSecondaryGraphs(normalizedData);
+            buildTertiaryGraphs(normalizedData);
         }
 
-        // --- 1. GLOBAL GRAPHS (Averaged Test vs Control) ---
+        function getAllTimestampLabels(data) {
+            const allTimestamps = [];
+            deviceOrder.forEach(deviceId => {
+                (data[deviceId] || []).forEach(reading => {
+                    if (reading.timestamp && !isNaN(reading.timestamp)) {
+                        allTimestamps.push(getTimeBucket(reading.timestamp).getTime());
+                    }
+                });
+            });
+            return [...new Set(allTimestamps)].sort((a, b) => a - b).map((ts) => new Date(ts));
+        }
+
         function buildMainGraphs(data) {
             const container = document.getElementById('main-graphs');
+            const allTimes = getAllTimestampLabels(data);
 
-            units.forEach(unit => {
-                // Find shared timestamps to align data
-                const controlData = data['DeviceControl'] || [];
-                const labels = controlData.map(d => d.fullTime);
-                
-                const controlValues = controlData.map(d => unit === 'temperature' ? d.temp : unit === 'humidity' ? d.hum : d.co2);
-                const averageValues = [];
-
-                // Calculate the 9-device average for each timestamp
-                for (let i = 0; i < labels.length; i++) {
-                    let sum = 0, count = 0;
-                    Object.keys(data).forEach(dev => {
-                        if (dev !== 'DeviceControl' && data[dev][i]) {
-                            sum += (unit === 'temperature' ? data[dev][i].temp : unit === 'humidity' ? data[dev][i].hum : data[dev][i].co2);
-                            count++;
-                        }
-                    });
-                    averageValues.push(count > 0 ? (sum / count) : null);
-                }
-
-                // Stats
-                const rmse = calculateRMSE(averageValues, controlValues);
-                const sd = calculateSD(averageValues, controlValues);
-
-                // Inject HTML
+            units.forEach(({ key, label }) => {
                 const card = document.createElement('div');
                 card.className = 'main-graph-card';
-                card.innerHTML = `
-                    <h3>Global ${unit.toUpperCase()}</h3>
-                    <canvas id="main-${unit}"></canvas>
-                    <div class="stats-panel">RMSE: ${rmse} | Std Dev (Mean Diff): ${sd}</div>
-                `;
+                card.innerHTML = `<h3>${label} Across All Devices</h3><canvas id="main-${key}"></canvas>`;
                 container.appendChild(card);
 
-                // Draw Chart
-                new Chart(document.getElementById(`main-${unit}`), {
+                const datasets = deviceOrder.map(deviceId => {
+                    const valueMap = new Map((data[deviceId] || []).map(reading => [getTimeBucket(reading.timestamp).getTime(), getValueForMetric(reading, key)]));
+                    return {
+                        label: deviceId,
+                        data: allTimes.map(timestamp => valueMap.get(timestamp.getTime()) ?? null),
+                        borderColor: deviceColors[deviceId],
+                        backgroundColor: deviceColors[deviceId] + '22',
+                        borderWidth: 2,
+                        tension: 0.2,
+                        pointRadius: SHOW_INFODOTS ? 3 : 0,
+                        pointHoverRadius: SHOW_INFODOTS ? 5 : 0,
+                        fill: false
+                    };
+                });
+
+                new Chart(document.getElementById(`main-${key}`), {
                     type: 'line',
                     data: {
-                        labels: labels,
-                        datasets: [
-                            { label: '9-Device Average', data: averageValues, borderColor: 'black', borderWidth: 2, tension: 0.1 },
-                            { label: 'Control Device', data: controlValues, borderColor: 'blue', borderWidth: 2, tension: 0.1 }
-                        ]
+                        labels: allTimes.map(timestamp => formatDateLabel(timestamp)),
+                        datasets
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { display: true, position: 'bottom' }
+                        },
+                        scales: {
+                            y: { beginAtZero: false }
+                        }
                     }
                 });
             });
         }
 
-        // --- 2. SECONDARY GRAPHS (3x3 Grids with 7-Day Overlays) ---
         function buildSecondaryGraphs(data) {
             const container = document.getElementById('secondary-graphs');
+            const availableDays = [...new Set(
+                deviceOrder.flatMap(deviceId => (data[deviceId] || []).map(reading => formatDateKey(reading.timestamp)))
+            )].sort();
 
-            units.forEach(unit => {
-                // Add Title for the Grid section
-                const unitTitle = document.createElement('h3');
-                unitTitle.innerText = `${unit.toUpperCase()} Breakdown (Last 7 Days Overlay)`;
-                unitTitle.style.marginTop = '40px';
-                container.appendChild(unitTitle);
+            availableDays.forEach((day) => {
+                const dayReadings = deviceOrder.map(deviceId => {
+                    const readingsForDay = (data[deviceId] || []).filter(reading => formatDateKey(reading.timestamp) === day);
+                    return {
+                        deviceId,
+                        readings: readingsForDay.sort((a, b) => a.timestamp - b.timestamp)
+                    };
+                }).filter(entry => entry.readings.length > 0);
 
-                const grid = document.createElement('div');
-                grid.className = 'grid-container';
-                container.appendChild(grid); // Append grid first
-                
-                // Loop through Low, Med, Hi (Rows)
-                deviceTypes.forEach(type => {
-                    // Loop through 1, 2, 3 (Columns)
-                    for(let i = 1; i <= 3; i++) {
-                        const deviceId = `Device${type}${i}`;
-                        const devData = data[deviceId] || [];
-                        
-                        // Group by Date for the overlay lines
-                        const groupedByDate = {};
-                        devData.forEach(reading => {
-                            if (!groupedByDate[reading.dateOnly]) groupedByDate[reading.dateOnly] = [];
-                            groupedByDate[reading.dateOnly].push({
-                                time: reading.timeOnly,
-                                val: unit === 'temperature' ? reading.temp : unit === 'humidity' ? reading.hum : reading.co2
-                            });
-                        });
+                if (dayReadings.length === 0) return;
 
-                        // Get the last 7 days
-                        const allDates = Object.keys(groupedByDate).sort((a, b) => new Date(a) - new Date(b));
-                        const last7Dates = allDates.slice(-7);
+                const allTimes = [...new Set(dayReadings.flatMap(entry => entry.readings.map(reading => getTimeBucket(reading.timestamp).getTime())))].sort((a, b) => a - b).map(ts => new Date(ts));
+                const datasets = dayReadings.map(entry => ({
+                    label: entry.deviceId,
+                    data: allTimes.map(time => {
+                        const reading = entry.readings.find(r => getTimeBucket(r.timestamp).getTime() === time.getTime());
+                        return reading ? getValueForMetric(reading, secondaryMetricKey) : null;
+                    }),
+                    borderColor: deviceColors[entry.deviceId],
+                    backgroundColor: deviceColors[entry.deviceId],
+                    borderWidth: 2,
+                    tension: 0.2,
+                    pointRadius: SHOW_INFODOTS ? 3 : 0,
+                    pointHoverRadius: SHOW_INFODOTS ? 5 : 0,
+                    fill: false
+                }));
 
-                        // Prepare Chart.js Datasets
-                        const datasets = [];
-                        const allTimes = new Set();
-                        
-                        // Collect all times from the last 7 days
-                        last7Dates.forEach(date => {
-                            groupedByDate[date].forEach(r => allTimes.add(r.time));
-                        });
+                const card = document.createElement('div');
+                card.className = 'main-graph-card';
+                card.innerHTML = `<h3>${day} — ${secondaryMetricKey.toUpperCase()}</h3><canvas id="secondary-${day}"></canvas>`;
+                container.appendChild(card);
 
-                        const sortedTimes = Array.from(allTimes).sort();
-
-                        // Assign colors
-                        const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF'];
-                        let colorIndex = 0;
-
-                        last7Dates.forEach(date => {
-                            const values = sortedTimes.map(time => {
-                                const reading = groupedByDate[date].find(r => r.time === time);
-                                return reading ? reading.val : null;
-                            });
-                            datasets.push({
-                                label: date,
-                                data: values,
-                                borderColor: colors[colorIndex % colors.length],
-                                borderWidth: 1,
-                                tension: 0.3,
-                                spanGaps: true
-                            });
-                            colorIndex++;
-                        });
-
-                        // Inject HTML for this specific device
-                        const card = document.createElement('div');
-                        card.className = 'grid-card';
-                        let canvas = null;
-                        if (datasets.length === 0) {
-                            card.innerHTML = `<h4>${deviceId}</h4><p>No data available</p>`;
-                        } else {
-                            card.innerHTML = `<h4>${deviceId}</h4><canvas id="grid-${unit}-${deviceId}"></canvas>`;
-                            canvas = card.querySelector('canvas');
-                        }
-                        grid.appendChild(card);
-
-                        // Draw Chart if data exists
-                        if (canvas) {
-                            new Chart(canvas, {
-                                type: 'line',
-                                data: {
-                                    labels: sortedTimes,
-                                    datasets: datasets
-                                },
-                                options: {
-                                    responsive: true,
-                                    plugins: { legend: { display: false } },
-                                    scales: {
-                                        x: { display: true },
-                                        y: { display: true }
-                                    }
-                                }
-                            });
-                        }
+                new Chart(document.getElementById(`secondary-${day}`), {
+                    type: 'line',
+                    data: {
+                        labels: allTimes.map(time => formatTimeLabel(time)),
+                        datasets
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: true, position: 'bottom' } },
+                        scales: { y: { beginAtZero: false } }
                     }
+                });
+            });
+        }
+
+        function buildTertiaryGraphs(data) {
+            const container = document.getElementById('tertiary-graphs');
+            const grid = document.createElement('div');
+            grid.className = 'grid-container';
+            container.appendChild(grid);
+
+            const availableDays = [...new Set(
+                deviceOrder.flatMap(deviceId => (data[deviceId] || []).map(reading => formatDateKey(reading.timestamp)))
+            )].sort();
+
+            deviceOrder.forEach(deviceId => {
+                units.forEach(({ key, label }) => {
+                    const readings = (data[deviceId] || []).filter(reading => availableDays.includes(formatDateKey(reading.timestamp)))
+                        .sort((a, b) => a.timestamp - b.timestamp);
+
+                    const card = document.createElement('div');
+                    card.className = 'grid-card';
+                    card.innerHTML = `<h4>${deviceId} — ${label}</h4><canvas id="tertiary-${deviceId}-${key}"></canvas>`;
+                    grid.appendChild(card);
+
+                    if (readings.length === 0) return;
+
+                    const labels = readings.map(reading => formatDateLabel(reading.timestamp));
+                    const values = readings.map(reading => getValueForMetric(reading, key));
+
+                    new Chart(document.getElementById(`tertiary-${deviceId}-${key}`), {
+                        type: 'line',
+                        data: {
+                            labels,
+                            datasets: [{
+                                label: deviceId,
+                                data: values,
+                                borderColor: deviceColors[deviceId],
+                                backgroundColor: deviceColors[deviceId] + '22',
+                                borderWidth: 2,
+                                tension: 0.2,
+                                pointRadius: SHOW_INFODOTS ? 3 : 0,
+                                pointHoverRadius: SHOW_INFODOTS ? 5 : 0,
+                                fill: false
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: { legend: { display: false } },
+                            scales: { y: { beginAtZero: false } }
+                        }
+                    });
                 });
             });
         }
